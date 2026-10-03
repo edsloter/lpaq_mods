@@ -1,0 +1,26 @@
+# Unrelated scratch material that lives in the tree but is not part of the
+# project. Deliberately NOT deleted; just kept out of version control.
+bullshit/
+
+# Private local backup of known-good source snapshots. The sources that actually
+# get built are the ones in the repo root. Local-only; contents may change.
+enhanced/
+
+# Editor / OS noise
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Build output. Binaries are published as GitHub Release assets rather than
+# committed, so this directory is never tracked.
+/build/
+
+# Temporary files from builds, tests and benchmarks
+*.tmp
+*.log
