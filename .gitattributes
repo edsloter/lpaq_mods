@@ -1,0 +1,22 @@
+# Keep line endings stable so builds behave the same on every platform.
+#
+# The repository stores LF. Without this file, Git's default autocrlf=true on
+# Windows would check the shell scripts out with CRLF, which breaks
+# build_lpaq8.sh / build_lpaq9m.sh under WSL and Git Bash.
+
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF: cmd.exe can mis-parse batch files with bare LF.
+*.bat text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# POSIX scripts and sources must stay LF or they break on Linux/macOS/WSL.
+*.sh  text eol=lf
+*.cpp text eol=lf
+*.h   text eol=lf
+
+# Never mangle binaries.
+*.exe  binary
+*.png  binary
+*.enc  binary
