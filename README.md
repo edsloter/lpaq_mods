@@ -1,4 +1,4 @@
-# LPAQMPe
+# LPAQ_MODS
 
 Speed-optimized builds of the LPAQ file compressors **lpaq8** and **lpaq9m**, with
 added `stdin`/`stdout` support.
