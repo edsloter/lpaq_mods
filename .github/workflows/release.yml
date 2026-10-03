@@ -1,0 +1,161 @@
+# Builds the four release binaries and attaches them to a GitHub Release.
+#
+# It calls the same scripts a user would run locally (build.ps1 on Windows,
+# build_lpaq8.sh / build_lpaq9m.sh on Linux) instead of duplicating the flag
+# logic, so CI cannot drift from the documented build.
+#
+# Release assets are the shipping channel; ./build/ is gitignored.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: # build + verify without publishing
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux binaries (lpaq8 g++, lpaq9m clang++)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Build with the shipped scripts
+        run: |
+          bash ./build_lpaq8.sh
+          bash ./build_lpaq9m.sh
+          ls -l build/
+
+      - name: Round-trip smoke test
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          # Half incompressible, half highly compressible, so both the fast and
+          # slow paths get exercised.
+          head -c 4194304 /dev/urandom >  "$work/smoke.bin"
+          head -c 4194304 /dev/zero   >> "$work/smoke.bin"
+          for p in lpaq8 lpaq9m; do
+            ./build/$p 6 "$work/smoke.bin" "$work/$p.lpq"
+            ./build/$p d "$work/$p.lpq" "$work/$p.out"
+            cmp "$work/smoke.bin" "$work/$p.out"
+            echo "$p: round-trip OK ($p.lpq = $(stat -c%s "$work/$p.lpq") bytes)"
+          done
+          rm -rf "$work"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-linux
+          path: |
+            build/lpaq8
+            build/lpaq9m
+          if-no-files-found: error
+
+  windows:
+    name: Windows binaries (lpaq8 g++, lpaq9m clang++)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64
+        run: choco install mingw --no-progress -y
+
+      - name: Put the compilers on PATH
+        shell: pwsh
+        run: |
+          foreach ($p in 'C:\ProgramData\mingw64\mingw64\bin', 'C:\Program Files\LLVM\bin') {
+            if (Test-Path $p) { $p | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
+          }
+          # clang targets x86_64-w64-mingw32 but does not always locate the
+          # MinGW sysroot on its own; point it at the headers and libraries.
+          $sysroot = 'C:\ProgramData\mingw64\mingw64'
+          if (Test-Path "$sysroot\include") {
+            "CPATH=$sysroot\include"     | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "LIBRARY_PATH=$sysroot\lib"  | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Report the resolved toolchain
+        shell: pwsh
+        run: |
+          (Get-Command g++).Source;     (g++ --version    | Select-Object -First 1) | Write-Host
+          (Get-Command clang++).Source; (clang++ --version | Select-Object -First 1) | Write-Host
+
+      - name: Build with build.ps1
+        shell: pwsh
+        run: ./build.ps1
+
+      - name: Verify archives are byte-identical to upstream
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Deterministic mix of incompressible and highly compressible data.
+          $data = Join-Path $env:RUNNER_TEMP 'data.bin'
+          $rand = New-Object byte[] (2MB)
+          [Random]::new(1234).NextBytes($rand)
+          $text = [Text.Encoding]::ASCII.GetBytes((('the quick brown fox jumps over the lazy dog' + "`n") * 30000))
+          [IO.File]::WriteAllBytes($data, $rand + $text)
+          Write-Host "data.bin = $((Get-Item $data).Length) bytes"
+
+          $programs = @(
+            @{ Name = 'lpaq8';  Ours = '.\build\lpaq8.exe';          Up = '.\original\lpaq8\lpaq8.exe' },
+            @{ Name = 'lpaq9m'; Ours = '.\build\lpaq9m.exe';         Up = '.\original\lpaq9m\lpaq9m.exe' }
+          )
+          foreach ($p in $programs) {
+            foreach ($opt in 4, 5, 6) {
+              $a = Join-Path $env:RUNNER_TEMP 'ours.lpq'
+              $b = Join-Path $env:RUNNER_TEMP 'up.lpq'
+              & $p.Ours $opt $data $a *> $null
+              if ($LASTEXITCODE -ne 0) { throw "$($p.Name) opt ${opt}: our binary failed" }
+              & $p.Up $opt $data $b *> $null
+              if ($LASTEXITCODE -ne 0) { throw "$($p.Name) opt ${opt}: upstream binary failed" }
+              if ((Get-FileHash $a).Hash -ne (Get-FileHash $b).Hash) {
+                throw "$($p.Name) opt ${opt}: archive is NOT byte-identical to upstream"
+              }
+              Write-Host "  $($p.Name) opt ${opt}: byte-identical ($((Get-Item $a).Length) bytes)"
+            }
+          }
+          Write-Host 'All archives match upstream.'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-windows
+          path: |
+            build/lpaq8.exe
+            build/lpaq9m.exe
+          if-no-files-found: error
+
+  release:
+    name: Attach the binaries to the GitHub Release
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls -l artifacts/
+          mapfile -t assets < <(find artifacts -type f | sort)
+          echo "attaching ${#assets[@]} asset(s) to $TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes "${assets[@]}"
+          fi
+          gh release view "$TAG"
