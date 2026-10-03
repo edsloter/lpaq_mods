@@ -5,6 +5,16 @@
 # logic, so CI cannot drift from the documented build.
 #
 # Release assets are the shipping channel; ./build/ is gitignored.
+#
+# Version choices, deliberate:
+#   checkout@v7, upload-artifact@v7, download-artifact@v8 are the first
+#   majors that declare `runs.using: node24`. v4 targets node20, which GitHub
+#   deprecated. download-artifact v8 also fails on an artifact digest mismatch
+#   instead of warning, which is the behaviour we want.
+#   Runner images are pinned rather than using the -latest labels, which move
+#   underneath you (ubuntu-latest migrates to Ubuntu 26.04 during October 2026).
+#   Pinning keeps a release from silently landing on an untested toolchain; move
+#   to 26.04 deliberately. windows-latest currently is windows-2025.
 name: Release
 
 on:
@@ -19,9 +29,9 @@ permissions:
 jobs:
   linux:
     name: Linux binaries (lpaq8 g++, lpaq9m clang++)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install clang
         run: |
@@ -50,7 +60,7 @@ jobs:
           done
           rm -rf "$work"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binaries-linux
           path: |
@@ -60,9 +70,9 @@ jobs:
 
   windows:
     name: Windows binaries (lpaq8 g++, lpaq9m clang++)
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install MinGW-w64
         run: choco install mingw --no-progress -y
@@ -124,7 +134,7 @@ jobs:
           }
           Write-Host 'All archives match upstream.'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binaries-windows
           path: |
@@ -136,9 +146,9 @@ jobs:
     name: Attach the binaries to the GitHub Release
     needs: [linux, windows]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
