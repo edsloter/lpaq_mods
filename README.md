@@ -236,5 +236,5 @@ Highlights and caveats, honestly:
 GPL version 2 or later (`GPL-2.0-or-later`). See [`LICENSE`](LICENSE).
 
 Upstream copyright: `Copyright (C) 2007 Matt Mahoney, Alexander Ratushnyak` (lpaq8) and
-`Copyright (C) 2007-2009 Alexander Ratushnyak, Matt Mahoney` (lpaq9m). The original,
+`Copyright (C) 2007-2009 Matt Mahoney, Alexander Ratushnyak` (lpaq9m). The original,
 unmodified upstream files are preserved under `original/` and carry the same license.
